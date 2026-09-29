@@ -143,15 +143,3 @@ eslint.config.js       ESLint flat configuration
 ## Testing
 
 `npm test` runs Vitest in a jsdom environment. Coverage includes parsing and rejecting the `_default` structure, preserving ZIP strings, next-ID calculation, add/edit/delete operations, serialization, client-side table sorting, the no-auto-load startup state, opening files through the File System Access API picker, saving through a writable file-system handle, the fallback file-input flow, and the fallback download behavior.
-
-## Customizing the template
-
-This project was created from the `app-starter` template with these values:
-
-- Display name: `JSON Manager`
-- Repository name: `json-manager`
-- Folder name: `json-manager`
-- Description: `A local web application for viewing, editing, adding, and deleting records in a structured JSON file.`
-- Hosted POC domain: `jsonmanager.rareobjectlabs.app`
-
-The neutral starter shell has been extended with the JSON Manager interface and browser-only file handling.
