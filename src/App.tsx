@@ -16,10 +16,13 @@ import {
 import type { DatabaseFile, SortDirection, SortKey } from './lib/db'
 import {
   downloadJsonText,
+  ensureWritePermission,
+  isWritableHandle,
   pickJsonFile,
   readFileText,
   readHandleText,
   supportsFileSystemAccess,
+  writeErrorMessage,
   writeHandleText,
 } from './lib/files'
 import type { FileSystemFileHandleLike } from './lib/files'
@@ -69,6 +72,7 @@ export default function App() {
   const [loadError, setLoadError] = useState<FileError | null>(null)
   const [saveError, setSaveError] = useState<FileError | null>(null)
   const [saveNotice, setSaveNotice] = useState('')
+  const [copyAvailable, setCopyAvailable] = useState(false)
   const [busy, setBusy] = useState(false)
   const [search, setSearch] = useState('')
   const [editor, setEditor] = useState<EditorState>(null)
@@ -84,15 +88,11 @@ export default function App() {
     setLoadError(null)
     setSaveError(null)
     setSaveNotice('')
+    setCopyAvailable(false)
   }, [])
 
   const applyDocument = useCallback(
-    (
-      text: string,
-      nextFileName: string,
-      handle: FileSystemFileHandleLike | null,
-      fallback: boolean,
-    ): boolean => {
+    (text: string, nextFileName: string, handle: FileSystemFileHandleLike | null): boolean => {
       const result = parseJsonStructure(text)
       if (!result.ok) {
         setLoadError({ code: result.code, message: structureMessage(result.code) })
@@ -101,7 +101,7 @@ export default function App() {
       const struct = cloneJson(result.struct)
       setFileName(nextFileName)
       setFileHandle(handle)
-      setFallbackMode(fallback)
+      setFallbackMode(handle ? !isWritableHandle(handle) : true)
       setWorking(struct)
       setSnapshotText(serializeJson(struct))
       setSearch('')
@@ -145,7 +145,7 @@ export default function App() {
       }
       try {
         const text = await readHandleText(handle)
-        applyDocument(text, handle.name, handle, false)
+        applyDocument(text, handle.name, handle)
       } catch {
         setLoadError({ code: 'read_failed', message: 'The selected file could not be read.' })
       }
@@ -167,7 +167,7 @@ export default function App() {
     }
     try {
       const text = await readFileText(file)
-      applyDocument(text, file.name, null, true)
+      applyDocument(text, file.name, null)
     } catch {
       setLoadError({ code: 'read_failed', message: 'The selected file could not be read.' })
     }
@@ -185,7 +185,7 @@ export default function App() {
     clearErrors()
     try {
       const text = await readHandleText(fileHandle)
-      applyDocument(text, fileHandle.name, fileHandle, false)
+      applyDocument(text, fileHandle.name, fileHandle)
     } catch {
       setLoadError({ code: 'read_failed', message: 'The file could not be read back from disk.' })
     }
@@ -202,12 +202,17 @@ export default function App() {
       setSaveError({ code: result.code, message: 'Unsaved changes produced an invalid file.' })
       return
     }
+    const handle = fileHandle && isWritableHandle(fileHandle) ? fileHandle : null
     setBusy(true)
     setSaveError(null)
     setSaveNotice('')
+    setCopyAvailable(false)
     try {
-      if (fileHandle) {
-        await writeHandleText(fileHandle, text)
+      if (handle) {
+        if (!(await ensureWritePermission(handle))) {
+          throw new DOMException('Write permission was not granted.', 'NotAllowedError')
+        }
+        await writeHandleText(handle, text)
         setSnapshotText(text)
       } else {
         downloadJsonText(fileName, text)
@@ -216,10 +221,25 @@ export default function App() {
           `Saved. Your browser cannot overwrite the original file, so the updated JSON was downloaded as "${fileName}".`,
         )
       }
-    } catch {
-      setSaveError({ code: 'write_failed', message: 'The file could not be saved back to disk.' })
+    } catch (error) {
+      setSaveError({ code: 'write_failed', message: writeErrorMessage(error) })
+      setCopyAvailable(true)
     }
     setBusy(false)
+  }
+
+  function handleDownloadCopy() {
+    if (!working) {
+      return
+    }
+    try {
+      downloadJsonText(fileName, workingText)
+      setSaveNotice(
+        `Downloaded the edited JSON as "${fileName}". The original file is unchanged, so these changes are still unsaved.`,
+      )
+    } catch (error) {
+      setSaveError({ code: 'write_failed', message: writeErrorMessage(error) })
+    }
   }
 
   function handleSubmitDraft(values: Record<string, unknown>) {
@@ -330,6 +350,16 @@ export default function App() {
           <div className="error-banner" role="alert">
             <strong>{errorTitle(saveError.code)}</strong>
             <span>{saveError.message}</span>
+            {copyAvailable && (
+              <button
+                type="button"
+                className="button"
+                onClick={handleDownloadCopy}
+                disabled={busy}
+              >
+                Download Copy
+              </button>
+            )}
           </div>
         )}
 

@@ -29,14 +29,21 @@ Two access modes are available, chosen at runtime by feature detection (`'showOp
 
 - `window.showOpenFilePicker()` opens the native picker, restricted to JSON files. The returned `FileSystemFileHandle` is kept in memory for the current page session only.
 - The file text is read with `handle.getFile()` → `File.text()`.
-- **Save Changes** validates the document, then writes through `handle.createWritable()` → `write()` → `close()`, replacing the selected file in place.
+- A handle is only treated as directly writable when it exposes `createWritable()`. A handle without it still loads normally but drops the app into download mode.
+- **Save Changes** validates the document, then checks write permission via `handle.queryPermission({ mode: 'readwrite' })` and, when it is not already granted, `handle.requestPermission({ mode: 'readwrite' })`. Both run inside the Save click so the browser's user-activation requirement for the permission prompt is satisfied; nothing is requested on page load or on file open.
+- Once permission is granted, the write goes through `handle.createWritable()` → `write()` → `close()`, replacing the selected file in place. A failed write aborts the stream (so the original file is left intact) and reports the underlying `DOMException` name.
 - **Reload from Disk** re-reads the selected file through the same handle.
+
+### When a direct write cannot happen
+
+- A denied permission prompt, or any write failure, leaves the working copy dirty and shows a specific message: `NotAllowedError` → permission not granted, `NoModificationAllowedError` → file open or locked elsewhere, `NotFoundError` → original file gone, anything else → "Could not save the file." Unexpected error names and messages are logged to the browser console for troubleshooting; the UI never shows file paths.
+- The error banner also offers **Download Copy**, which downloads the edited JSON under the original filename. The original file is unchanged, so the changes stay unsaved. The download only ever happens on an explicit user action.
 
 ### File input fallback (other browsers)
 
 - An `<input type="file" accept=".json,application/json">` is used when the File System Access API is unavailable.
 - The file text is read via `File.text()`; the handle is `null`.
-- Because the original file cannot be overwritten, **Save Changes** downloads the updated JSON (`Blob` + object URL on a temporary link) using the original filename. The app shows an unobtrusive notice explaining this.
+- Because the original file cannot be overwritten, **Save Changes** downloads the updated JSON (`Blob` + object URL on a temporary link) using the original filename. The app shows an unobtrusive notice explaining this. This is the same path used for a File System Access handle that lacks `createWritable()`.
 - **Reload from Disk** is disabled because there is no handle to re-read.
 
 In both modes the working copy stays in memory until **Save Changes**; while dirty, the header shows an indicator and the browser warns before leaving the page.
